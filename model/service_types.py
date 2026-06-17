@@ -6,6 +6,7 @@ class InputData:
     patientId: str
     startDateTime: str # ISO String
     endDateTime: str # ISO String
+    intervalDuration: int # Duration of the time interval in seconds
 
 @dataclass
 class PatientData:

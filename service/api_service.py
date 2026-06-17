@@ -16,7 +16,8 @@ class APIService(ABC):
     def getDataForHeartRateDistribution(self, inputData: InputData) -> list[HeartRateData]:
         '''
         Get data for heart rate distribution.
-    @abstractmethod    '''
+        '''
+    @abstractmethod    
     def getDataForJumpDistribution(self, inputData: InputData) -> list[JumpData]:
         '''
         Get data for jump distribution.
