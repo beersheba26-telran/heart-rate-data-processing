@@ -16,19 +16,20 @@ load_dotenv()
 
 class _ApiServiceImpl(APIService):
     def __init__(self, dsn: str | None = None):
-        self._dsn = dsn or self._load_dsn_from_secrets_manager()
+        secret_values = self._load_secret_values_from_secrets_manager()
+        self._dsn = dsn or secret_values["URI"]
         self._pool = ConnectionPool(conninfo=self._dsn, min_size=1, max_size=10, open=True)
-        mongo_client = MongoClient(os.getenv("MONGO_URI"))
-        self._heart_rate_collection = mongo_client[os.getenv("MONGO_DB_NAME")][os.getenv("REDUCED_VALUES_COLLECTION")]
-        self._jumps_collection = mongo_client[os.getenv("MONGO_DB_NAME")][os.getenv("JUMPS_VALUES_COLLECTION")]
+        mongo_client = MongoClient(secret_values["MONGO_URI"])
+        self._heart_rate_collection = mongo_client[secret_values["MONGO_DB_NAME"]][secret_values["REDUCED_VALUES_COLLECTION"]]
+        self._jumps_collection = mongo_client[secret_values["MONGO_DB_NAME"]][secret_values["JUMPS_VALUES_COLLECTION"]]
 
-    def _load_dsn_from_secrets_manager(self) -> str:
+    def _load_secret_values_from_secrets_manager(self) -> dict:
         secret_id = os.getenv("DB_SECRET_ID")
         region_name = os.getenv("AWS_REGION") or "us-east-1"
 
         client = boto3.client("secretsmanager", region_name=region_name)
         secret_response = client.get_secret_value(SecretId=secret_id)
-        return json.loads(secret_response["SecretString"])["URI"]
+        return json.loads(secret_response["SecretString"])
 
     @staticmethod
     def _calculate_age(birthdate: date | None) -> int:
