@@ -10,7 +10,7 @@ from psycopg_pool import ConnectionPool
 from app_logger import logger
 from model.service_types import HeartRateData, InputData, JumpData, LlmInputData, PatientData
 from service.api_service import APIService
-
+import openai
 load_dotenv()
 
 
@@ -22,7 +22,8 @@ class _ApiServiceImpl(APIService):
         mongo_client = MongoClient(secret_values["MONGO_URI"])
         self._heart_rate_collection = mongo_client[secret_values["MONGO_DB_NAME"]][secret_values["REDUCED_VALUES_COLLECTION"]]
         self._jumps_collection = mongo_client[secret_values["MONGO_DB_NAME"]][secret_values["JUMPS_VALUES_COLLECTION"]]
-
+        self.openai_client = openai.OpenAI()
+        self.model_name = os.getenv("MODEL_NAME", "openai.gpt-oss-20b")
     def _load_secret_values_from_secrets_manager(self) -> dict:
         secret_id = os.getenv("DB_SECRET_ID")
         region_name = os.getenv("AWS_REGION") or "us-east-1"
@@ -140,9 +141,55 @@ class _ApiServiceImpl(APIService):
             ).sort("date", 1)
         )
 
+    def _get_latest_pulse_values(self, device_id: str, nValues: int) -> list[float]:
+        if nValues <= 0:
+            return []
+
+        latest_values = list(
+            self._heart_rate_collection.find(
+                {"device_id": device_id},
+                {"pulse_value": 1, "date": 1, "_id": 0},
+            ).sort("date", -1).limit(nValues)
+        )
+
+        latest_values.reverse()
+        return [float(lv["pulse_value"]) for lv in latest_values]
+
+    def _get_latest_jump_percent_values(self, device_id: str, nValues: int) -> list[float]:
+        if nValues <= 0:
+            return []
+
+        latest_values = list(
+            self._jumps_collection.find(
+                {"device_id": device_id},
+                {"current_pulse_value": 1, "previous_pulse_value": 1, "date": 1, "_id": 0},
+            ).sort("date", -1).limit(nValues)
+        )
+
+        latest_values.reverse()
+        jump_percents: list[float] = []
+        for value in latest_values:
+            previous_pulse_value = float(value["previous_pulse_value"])
+            if previous_pulse_value == 0:
+                continue
+            jump_percents.append(
+                self._round_metric(
+                    self._compute_jump_percent(value)
+                )
+            )
+
+        return jump_percents
+
     @staticmethod
     def _compute_jump_percent(document: dict) -> float:
-        return abs(document["current_pulse_value"] - document["previous_pulse_value"]) / document["previous_pulse_value"] * 100
+        return _ApiServiceImpl._compute_jump_percent_values(
+            float(document["current_pulse_value"]),
+            float(document["previous_pulse_value"]),
+        )
+
+    @staticmethod
+    def _compute_jump_percent_values(current_pulse_value: float, previous_pulse_value: float) -> float:
+        return abs(current_pulse_value - previous_pulse_value) / previous_pulse_value * 100
 
     def _build_jump_data(
         self,
@@ -312,9 +359,7 @@ class _ApiServiceImpl(APIService):
             previous_pulse_value = float(document["previous_pulse_value"])
             if previous_pulse_value == 0:
                 continue
-            jump_percents.append(
-                abs(float(document["current_pulse_value"]) - previous_pulse_value) / previous_pulse_value * 100
-            )
+            jump_percents.append(self._compute_jump_percent(document))
 
         if not jump_percents:
             return {
@@ -328,27 +373,57 @@ class _ApiServiceImpl(APIService):
             "count_jumps_percent_gt_40": sum(1 for value in jump_percents if value > 40),
             "jumps_std_deviation": self._round_metric(pstdev(jump_percents)) if len(jump_percents) > 1 else 0.0,
         }
+    def _call_llm_api(self, summary: dict) -> str:
+        try:
+            completion = self.openai_client.chat.completions.create(
+                model=self.model_name,
+                temperature=0.2,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a cardiology data analyst. Analyze heart-rate patterns,\
+                                identify trends, anomalies, possible data-quality issues,\
+                                    and provide explanations. "
+                            
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "short response not more than 100 words about behavior pattern based on this telemetry payload (JSON):\n"
+                            f"{json.dumps(summary, ensure_ascii=True)}"
+                        ),
+                    },
+                ],
+            )
 
+            message = completion.choices[0].message.content
+            return message.strip() if message else ""
+        except Exception:
+            logger.exception("Failed to get LLM response from OpenAI API")
+            raise (RuntimeError("Failed to get LLM response from OpenAI API") )
+        
     def getLlmResponse(self, inputData: InputData) -> str:
         device_id = self._get_device_id_by_patient_id(inputData.patientId)
         if device_id is None:
-            logger.warning("No device found for patient %s", inputData.patientId)
+            logger.warning(f"No device found for patient {inputData.patientId}")
             return ""
         pulseValuesStatistics = self._build_pulse_statistics(device_id, inputData)
-        logger.debug("LLM response requested for patient %s with pulse statistics: %s", inputData.patientId, pulseValuesStatistics)
+        logger.debug(f"LLM response requested for patient {inputData.patientId} with pulse statistics: {pulseValuesStatistics}")
         jumps_statistics = self._build_jump_statistics(device_id, inputData)
-        logger.debug("LLM response requested for patient %s with jump statistics: %s", inputData.patientId, jumps_statistics)   
+        logger.debug(f"LLM response requested for patient {inputData.patientId} with jump statistics: {jumps_statistics}")   
         lastPulseValues = self._get_latest_pulse_values(device_id, nValues=5)
-        lastJumpValues = self._get_latest_jump_values(device_id, nValues=5)
+        lastJumpValues = self._get_latest_jump_percent_values(device_id, nValues=5)
         summary = {
-            "pulseValuesStatistics": pulseValuesStatistics,
-            "jumps_statistics": jumps_statistics,
-            "lastPulseValues": lastPulseValues,
-            "lastJumpValues": lastJumpValues
+            "pulse_values_statistics": pulseValuesStatistics,
+            "instant_jumps_statistics": jumps_statistics,
+            "last_pulse_values": lastPulseValues,
+            "last_instant_jump_values": lastJumpValues
         }
-        logger.debug("LLM response summary for patient %s: %s", inputData.patientId, summary)
+        logger.debug(f"LLM response summary for patient {inputData.patientId}: {summary}")
         response = self._call_llm_api(summary)
-        logger.debug("LLM response for patient %s: %s", inputData.patientId, response)
+        logger.debug(f"LLM response for patient {inputData.patientId}: {response}")
         return response
 
 

@@ -45,3 +45,8 @@ def get_jump_distribution(payload: DistributionRequest) -> list[dict[str, Any]]:
     input_data = payload.to_input_data()
     jump_data = api_service.getDataForJumpDistribution(input_data)
     return [asdict(item) for item in jump_data]
+@router.post("/llm_response")
+def get_llm_response(payload: DistributionRequest) -> dict[str, str]:
+    input_data = payload.to_input_data()
+    llm_response = api_service.getLlmResponse(input_data)
+    return {"llm_response": llm_response}   
