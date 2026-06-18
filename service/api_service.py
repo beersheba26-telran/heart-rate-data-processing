@@ -23,7 +23,7 @@ class APIService(ABC):
         Get data for jump distribution.
         ''' 
     @abstractmethod    
-    def getLlmResponse(self, inputData: LlmInputData) -> str:
+    def getLlmResponse(self, inputData: InputData) -> str:
         '''
         Get response from LLM based on the input data.
         '''    

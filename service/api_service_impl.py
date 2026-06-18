@@ -2,12 +2,12 @@ from dotenv import load_dotenv
 import json
 import os
 from datetime import date, datetime
-from statistics import median
+from statistics import mean, median, pstdev
 
 import boto3
 from pymongo import MongoClient
 from psycopg_pool import ConnectionPool
-
+from app_logger import logger
 from model.service_types import HeartRateData, InputData, JumpData, LlmInputData, PatientData
 from service.api_service import APIService
 
@@ -277,9 +277,79 @@ class _ApiServiceImpl(APIService):
 
         return jump_data
 
-    def getLlmResponse(self, inputData: LlmInputData):
-        # Implementation to retrieve response from LLM based on the input data
-        pass
+    @staticmethod
+    def _round_metric(value: float) -> float:
+        return round(value, 2)
+
+    def _build_pulse_statistics(self, device_id: str,inputData: InputData) -> dict[str, float | int]:
+       
+        documents = [] if device_id is None else self._get_heart_rate_documents(device_id, inputData)
+
+        if not documents:
+            return {
+                "measurements_count": 0,
+                "min_pulse": 0,
+                "max_pulse": 0,
+                "avg_pulse": 0.0,
+                "std_deviation": 0.0,
+            }
+
+        pulse_values = [float(document["pulse_value"]) for document in documents]
+
+        return {
+            "measurements_count": len(pulse_values),
+            "min_pulse": min(pulse_values),
+            "max_pulse": max(pulse_values),
+            "avg_pulse": self._round_metric(mean(pulse_values)),
+            "std_deviation": self._round_metric(pstdev(pulse_values)) if len(pulse_values) > 1 else 0.0,
+        }
+
+    def _build_jump_statistics(self, device_id: str, inputData: InputData) -> dict[str, float | int]:
+        documents = self._get_jump_documents(device_id, inputData)
+        jump_percents: list[float] = []
+
+        for document in documents:
+            previous_pulse_value = float(document["previous_pulse_value"])
+            if previous_pulse_value == 0:
+                continue
+            jump_percents.append(
+                abs(float(document["current_pulse_value"]) - previous_pulse_value) / previous_pulse_value * 100
+            )
+
+        if not jump_percents:
+            return {
+                "avg_jump_in_percents": 0.0,
+                "count_jumps_percent_gt_40": 0,
+                "jumps_std_deviation": 0.0,
+            }
+
+        return {
+            "avg_jump_in_percents": self._round_metric(mean(jump_percents)),
+            "count_jumps_percent_gt_40": sum(1 for value in jump_percents if value > 40),
+            "jumps_std_deviation": self._round_metric(pstdev(jump_percents)) if len(jump_percents) > 1 else 0.0,
+        }
+
+    def getLlmResponse(self, inputData: InputData) -> str:
+        device_id = self._get_device_id_by_patient_id(inputData.patientId)
+        if device_id is None:
+            logger.warning("No device found for patient %s", inputData.patientId)
+            return ""
+        pulseValuesStatistics = self._build_pulse_statistics(device_id, inputData)
+        logger.debug("LLM response requested for patient %s with pulse statistics: %s", inputData.patientId, pulseValuesStatistics)
+        jumps_statistics = self._build_jump_statistics(device_id, inputData)
+        logger.debug("LLM response requested for patient %s with jump statistics: %s", inputData.patientId, jumps_statistics)   
+        lastPulseValues = self._get_latest_pulse_values(device_id, nValues=5)
+        lastJumpValues = self._get_latest_jump_values(device_id, nValues=5)
+        summary = {
+            "pulseValuesStatistics": pulseValuesStatistics,
+            "jumps_statistics": jumps_statistics,
+            "lastPulseValues": lastPulseValues,
+            "lastJumpValues": lastJumpValues
+        }
+        logger.debug("LLM response summary for patient %s: %s", inputData.patientId, summary)
+        response = self._call_llm_api(summary)
+        logger.debug("LLM response for patient %s: %s", inputData.patientId, response)
+        return response
 
 
 api_service: APIService = _ApiServiceImpl()
