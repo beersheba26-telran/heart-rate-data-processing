@@ -29,9 +29,3 @@ class JumpData:
     timestampStart: float # Epoch time in seconds   
     intervalDuration: int # Duration of the time interval in seconds    
     
-@dataclass
-class LlmInputData:
-    startDateTime: str # ISO String
-    endDateTime: str # ISO String
-    heartRateData: list[HeartRateData]
-    jumpData: list[JumpData] 
