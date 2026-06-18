@@ -1,3 +1,3 @@
-from service.api_service_impl import get_api_service
+from service.api_service_impl import api_service
 
-__all__ = ["get_api_service"]
+__all__ = ["api_service"]

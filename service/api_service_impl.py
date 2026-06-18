@@ -256,11 +256,6 @@ class _ApiServiceImpl(APIService):
                     inputData.intervalDuration,
                 )
             ]
-        elif inputData.intervalDuration <= self._get_source_interval_duration(documents):
-            heart_rate_data = [
-                self._build_heart_rate_data_from_document(doc, inputData.intervalDuration)
-                for doc in documents
-            ]
         else:
             heart_rate_data = self._aggregate_heart_rate_documents(
                 documents,
@@ -277,11 +272,6 @@ class _ApiServiceImpl(APIService):
             jump_data = []
         elif len(documents) == 1:
             jump_data = [self._build_jump_data_from_document(documents[0], inputData.intervalDuration)]
-        elif inputData.intervalDuration <= self._get_source_interval_duration(documents):
-            jump_data = [
-                self._build_jump_data_from_document(doc, inputData.intervalDuration)
-                for doc in documents
-            ]
         else:
             jump_data = self._aggregate_jump_documents(documents, inputData.intervalDuration)
 
