@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from model.service_types import HeartRateData, InputData, JumpData, LlmInputData, PatientData
+from model.service_types import HeartRateData, InputData, JumpData,  PatientData
 class APIService(ABC):
     @abstractmethod
     def getPatientData(self, patientId: str) -> PatientData:

@@ -8,10 +8,15 @@ import boto3
 from pymongo import MongoClient
 from psycopg_pool import ConnectionPool
 from app_logger import logger
-from model.service_types import HeartRateData, InputData, JumpData, LlmInputData, PatientData
+from model.service_types import HeartRateData, InputData, JumpData,  PatientData
 from service.api_service import APIService
 import openai
-load_dotenv()
+
+try:
+    load_dotenv()
+except UnicodeDecodeError:
+    # Support UTF-16 .env files that may be saved by some editors on Windows.
+    load_dotenv(encoding="utf-16")
 
 
 class _ApiServiceImpl(APIService):
