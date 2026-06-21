@@ -3,12 +3,12 @@ from abc import ABC, abstractmethod
 from model.service_types import HeartRateData, InputData, JumpData,  PatientData
 class APIService(ABC):
     @abstractmethod
-    def getPatientData(self, patientId: str) -> PatientData:
+    def getPatientData(self, patientId: str, currentUserId: str) -> PatientData:
         '''
         Get patient data by patient ID.
         '''
     @abstractmethod
-    def getPatientsOfDoctor(self, doctorId: str) -> list[PatientData]:
+    def getPatientsOfDoctor(self, currentUserId: str) -> list[PatientData]:
         '''
         Get a list of patients associated with a doctor.
         '''

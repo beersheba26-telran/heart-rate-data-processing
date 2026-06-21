@@ -61,6 +61,13 @@ class _ApiServiceImpl(APIService):
 
         return row[0]
 
+    @staticmethod
+    def _set_current_user_id_for_rls(cur, currentUserId: str) -> None:
+        cur.execute(
+            "SELECT set_config('app.current_user_id', %s, true)",
+            (currentUserId,),
+        )
+
     def _get_heart_rate_documents(self, device_id: str, inputData: InputData) -> list[dict]:
         return list(
             self._heart_rate_collection.find(
@@ -245,16 +252,19 @@ class _ApiServiceImpl(APIService):
 
         return jump_data
 
-    def getPatientData(self, patientId: str) -> PatientData:
+    def getPatientData(self, patientId: str, currentUserId: str) -> PatientData:
         query = """
-            SELECT id, name, email, weight, height, birthdate
-            FROM public.patients
-            WHERE id = %s
+            SELECT p.id, p.name, p.email, p.weight, p.height, p.birthdate
+            FROM public.patients p
+            JOIN public.doctor_patient dp ON dp.patient_id = p.id
+            WHERE p.id = %s
+              AND dp.doctor_id = %s
         """
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, (patientId,))
+                self._set_current_user_id_for_rls(cur, currentUserId)
+                cur.execute(query, (patientId, currentUserId))
                 row = cur.fetchone()
 
         if row is None:
@@ -270,7 +280,7 @@ class _ApiServiceImpl(APIService):
             age=self._calculate_age(birthdate),
         )
 
-    def getPatientsOfDoctor(self, doctorId: str) -> list[PatientData]:
+    def getPatientsOfDoctor(self, currentUserId: str) -> list[PatientData]:
         query = """
             SELECT p.id, p.name, p.email, p.weight, p.height, p.birthdate
             FROM public.patients p
@@ -280,7 +290,8 @@ class _ApiServiceImpl(APIService):
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, (doctorId,))
+                self._set_current_user_id_for_rls(cur, currentUserId)
+                cur.execute(query, (currentUserId,))
                 rows = cur.fetchall()
 
         return [
