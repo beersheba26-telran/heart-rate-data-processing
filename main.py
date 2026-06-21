@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app_exceptions import NotFoundException
 from app_logger import logger
 from routers.distribution import router as distribution_router
 from routers.patients import router as patients_router
@@ -152,6 +153,12 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 async def authorization_decision_exception_handler(request: Request, exc: AuthorizationDecisionException) -> JSONResponse:
 	logger.warning("Authorization decision error on {}: {}", request.url.path, exc.detail)
 	return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(NotFoundException)
+async def not_found_exception_handler(request: Request, exc: NotFoundException) -> JSONResponse:
+	logger.warning("Not found on {}: {}", request.url.path, exc.detail)
+	return JSONResponse(status_code=404, content={"detail": exc.detail})
 
 
 @app.exception_handler(Exception)

@@ -13,17 +13,17 @@ class APIService(ABC):
         Get a list of patients associated with a doctor.
         '''
     @abstractmethod
-    def getDataForHeartRateDistribution(self, inputData: InputData) -> list[HeartRateData]:
+    def getDataForHeartRateDistribution(self, inputData: InputData, currentUserId: str) -> list[HeartRateData]:
         '''
         Get data for heart rate distribution.
         '''
     @abstractmethod    
-    def getDataForJumpDistribution(self, inputData: InputData) -> list[JumpData]:
+    def getDataForJumpDistribution(self, inputData: InputData, currentUserId: str) -> list[JumpData]:
         '''
         Get data for jump distribution.
         ''' 
     @abstractmethod    
-    def getLlmResponse(self, inputData: InputData) -> str:
+    def getLlmResponse(self, inputData: InputData, currentUserId: str) -> str:
         '''
         Get response from LLM based on the input data.
         '''    

@@ -12,10 +12,7 @@ router = APIRouter(prefix="/patients", tags=["patients"])
 def get_patient_by_id(id: str, request: Request) -> dict[str, Any]:
     current_user_id = str(request.scope.get("user_id", "")).strip()
 
-    try:
-        patient = api_service.getPatientData(id, current_user_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    patient = api_service.getPatientData(id, current_user_id)
     return asdict(patient)
 
 

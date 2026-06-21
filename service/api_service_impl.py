@@ -7,6 +7,7 @@ from statistics import mean, median, pstdev
 import boto3
 from pymongo import MongoClient
 from psycopg_pool import ConnectionPool
+from app_exceptions import NotFoundException
 from app_logger import logger
 from model.service_types import HeartRateData, InputData, JumpData,  PatientData
 from service.api_service import APIService
@@ -47,12 +48,20 @@ class _ApiServiceImpl(APIService):
             (today.month, today.day) < (birthdate.month, birthdate.day)
         )
 
-    def _get_device_id_by_patient_id(self, patient_id: str) -> str | None:
+    def _get_device_id_by_patient_id(self, patient_id: str, currentUserId: str) -> str | None:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
+                self._set_current_user_id_for_rls(cur, currentUserId)
                 cur.execute(
-                    "SELECT id FROM public.devices WHERE patient_id = %s LIMIT 1",
-                    (patient_id,),
+                    """
+                    SELECT d.id
+                    FROM public.devices d
+                    JOIN public.doctor_patient dp ON dp.patient_id = d.patient_id
+                    WHERE d.patient_id = %s
+                      AND dp.doctor_id = %s
+                    LIMIT 1
+                    """,
+                    (patient_id, currentUserId),
                 )
                 row = cur.fetchone()
 
@@ -268,7 +277,7 @@ class _ApiServiceImpl(APIService):
                 row = cur.fetchone()
 
         if row is None:
-            raise ValueError(f"Patient with id '{patientId}' was not found")
+            raise NotFoundException(f"Patient with id '{patientId}' was not found")
 
         patient_id, name, email, weight, height, birthdate = row
         return PatientData(
@@ -306,8 +315,10 @@ class _ApiServiceImpl(APIService):
             for row in rows
         ]
 
-    def getDataForHeartRateDistribution(self, inputData: InputData) -> list[HeartRateData]:
-        device_id = self._get_device_id_by_patient_id(inputData.patientId)
+    def getDataForHeartRateDistribution(self, inputData: InputData, currentUserId: str) -> list[HeartRateData]:
+        device_id = self._get_device_id_by_patient_id(inputData.patientId, currentUserId)
+        if device_id is None:
+            raise NotFoundException(f"Patient with id '{inputData.patientId}' was not found")
         documents = [] if device_id is None else self._get_heart_rate_documents(device_id, inputData)
 
         if not documents:
@@ -327,8 +338,10 @@ class _ApiServiceImpl(APIService):
 
         return heart_rate_data
 
-    def getDataForJumpDistribution(self, inputData: InputData) -> list[JumpData]:
-        device_id = self._get_device_id_by_patient_id(inputData.patientId)
+    def getDataForJumpDistribution(self, inputData: InputData, currentUserId: str) -> list[JumpData]:
+        device_id = self._get_device_id_by_patient_id(inputData.patientId, currentUserId)
+        if device_id is None:
+            raise NotFoundException(f"Patient with id '{inputData.patientId}' was not found")
         documents = [] if device_id is None else self._get_jump_documents(device_id, inputData)
 
         if not documents:
@@ -420,11 +433,10 @@ class _ApiServiceImpl(APIService):
             logger.exception("Failed to get LLM response from OpenAI API")
             raise (RuntimeError("Failed to get LLM response from OpenAI API") )
         
-    def getLlmResponse(self, inputData: InputData) -> str:
-        device_id = self._get_device_id_by_patient_id(inputData.patientId)
+    def getLlmResponse(self, inputData: InputData, currentUserId: str) -> str:
+        device_id = self._get_device_id_by_patient_id(inputData.patientId, currentUserId)
         if device_id is None:
-            logger.warning(f"No device found for patient {inputData.patientId}")
-            return ""
+            raise NotFoundException(f"Patient with id '{inputData.patientId}' was not found")
         pulseValuesStatistics = self._build_pulse_statistics(device_id, inputData)
         logger.debug(f"LLM response requested for patient {inputData.patientId} with pulse statistics: {pulseValuesStatistics}")
         jumps_statistics = self._build_jump_statistics(device_id, inputData)
